@@ -40,6 +40,57 @@ out = process(img, address="ipc:///tmp/bioimageio.ipc")
 print(out.shape)  # (1, 1, 256, 256) for affable-shark
 ```
 
+## Validated models from the BioImage Model Zoo
+
+These BIMZ entries have been verified end-to-end on GPU through the
+`server.setup()` + `server._run()` code path: each loads from a fresh
+`bioimageio.core` cache, lands on `cuda:0`, and produces a sensible-shaped
+forward pass on synthetic input. Picked from the 44-model BIMZ collection
+JSON by (a) high download count, (b) `onnx` or `torchscript` weights
+published in the RDF (the `default` flake variant has no model-architecture
+dependencies), and (c) coverage spread across nuclei/cell/EM segmentation,
+super-resolution, label-free, and classification.
+
+```bash
+nix run --impure github:afermg/nahual_bioimageio -- ipc:///tmp/bioimageio.ipc
+```
+
+Click any nickname to view the model card on `bioimage.io`.
+
+| Nickname | Name | Task | Input axes (shape) | Weight format | Output shape | App variant |
+|---|---|---|---|---|---|---|
+| [affable-shark](https://bioimage.io/#/?id=affable-shark) | NucleiSegmentationBoundaryModel | 2D nuclei (DSB) | `bcyx (1, 1, 256, 256)` | `torchscript` | `(1, 2, 256, 256)` | `default` |
+| [hiding-tiger](https://bioimage.io/#/?id=hiding-tiger) | LiveCellSegmentationBoundaryModel | 2D live-cell label-free (LIVECell) | `bcyx (1, 1, 256, 256)` | `torchscript` | `(1, 2, 256, 256)` | `default` |
+| [powerful-chipmunk](https://bioimage.io/#/?id=powerful-chipmunk) | CovidIFCellSegmentationBoundaryModel | 2D cell (COVID-19 IF) | `bcyx (1, 1, 256, 256)` | `torchscript` | `(1, 2, 256, 256)` | `default` |
+| [loyal-parrot](https://bioimage.io/#/?id=loyal-parrot) | HPA Cell Segmentation (DPNUnet) | 2D HPA cell segmentation | `bcyx (1, 3, 256, 256)` | `torchscript` | `(1, 3, 256, 256)` | `default` |
+| [conscientious-seashell](https://bioimage.io/#/?id=conscientious-seashell) | HPA Nucleus Segmentation (DPNUnet) | 2D HPA nucleus segmentation | `bcyx (1, 3, 256, 256)` | `torchscript` | `(1, 3, 256, 256)` | `default` |
+| [hiding-blowfish](https://bioimage.io/#/?id=hiding-blowfish) | EnhancerMitochondriaEM2D | 2D EM mitochondria boundary | `bcyx (1, 1, 256, 256)` | `torchscript` | `(1, 2, 256, 256)` | `default` |
+| [shivering-raccoon](https://bioimage.io/#/?id=shivering-raccoon) | MitchondriaEMSegmentation2D | 2D EM mitochondria segmentation | `bcyx (1, 1, 256, 256)` | `torchscript` | `(1, 2, 256, 256)` | `default` |
+| [pioneering-rhino](https://bioimage.io/#/?id=pioneering-rhino) | 2D UNet Arabidopsis Ovules | 2D plant Arabidopsis ovules | `bcyx (1, 1, 512, 512)` | `torchscript` | `(1, 1, 512, 512)` | `default` |
+| [kind-seashell](https://bioimage.io/#/?id=kind-seashell) | MitochondriaEMSegmentationBoundaryModel | 3D EM mitochondria boundary | `bczyx (1, 1, 16, 128, 128)` | `torchscript` | `(1, 2, 16, 128, 128)` | `default` |
+| [organized-badger](https://bioimage.io/#/?id=organized-badger) | PlatynereisEMnucleiSegmentationBoundaryModel | 3D EM nuclei (Platynereis) | `bczyx (1, 1, 32, 128, 128)` | `torchscript` | `(1, 2, 32, 128, 128)` | `default` |
+| [willing-hedgehog](https://bioimage.io/#/?id=willing-hedgehog) | PlatynereisEMcellsSegmentationBoundaryModel | 3D EM cells (Platynereis) | `bczyx (1, 1, 32, 128, 128)` | `torchscript` | `(1, 1, 32, 128, 128)` | `default` |
+| [powerful-fish](https://bioimage.io/#/?id=powerful-fish) | 3D UNet Mouse Embryo Live | 3D mouse embryo (light-sheet, live) | `bczyx (1, 1, 32, 128, 128)` | `torchscript` | `(1, 1, 32, 128, 128)` | `default` |
+| [loyal-squid](https://bioimage.io/#/?id=loyal-squid) | 3D UNet Mouse Embryo Fixed | 3D mouse embryo (light-sheet, fixed) | `bczyx (1, 1, 32, 128, 128)` | `torchscript` | `(1, 2, 32, 128, 128)` | `default` |
+| [emotional-cricket](https://bioimage.io/#/?id=emotional-cricket) | 3D UNet Arabidopsis Apical Stem Cells | 3D plant apical stem cells | `bczyx (1, 1, 100, 128, 128)` | `torchscript` | `(1, 1, 100, 128, 128)` | `default` |
+| [thoughtful-turtle](https://bioimage.io/#/?id=thoughtful-turtle) | 3D UNet Lateral Root Primordia Cells | 3D plant lateral root (light-sheet) | `bczyx (1, 1, 100, 128, 128)` | `torchscript` | `(1, 1, 100, 128, 128)` | `default` |
+| [noisy-fish](https://bioimage.io/#/?id=noisy-fish) | 3D UNet Arabidopsis Ovules Nuclei | 3D plant ovule nuclei | `bczyx (1, 1, 96, 96, 96)` | `torchscript` | `(1, 1, 96, 96, 96)` | `default` |
+| [noisy-hedgehog](https://bioimage.io/#/?id=noisy-hedgehog) | 2D UNet label-free mCherry from BF | 2D label-free fluorescence prediction | `bcyx (1, 1, 512, 512)` | `torchscript` | `(1, 1, 512, 512)` | `default` |
+| [ambitious-ant](https://bioimage.io/#/?id=ambitious-ant) | UniFMIRSuperResolutionOnMicrotubules | 2D super-resolution (microtubules) | `bcyx (1, 1, 128, 128)` | `torchscript` | `(1, 1, 256, 256)` | `default` |
+| [courteous-otter](https://bioimage.io/#/?id=courteous-otter) | UniFMIRSuperResolutionOnFactin | 2D super-resolution (F-actin) | `bcyx (1, 1, 128, 128)` | `torchscript` | `(1, 1, 256, 256)` | `default` |
+| [organized-cricket](https://bioimage.io/#/?id=organized-cricket) | Mitochondria SR (Wasserstein) | 2D mitochondria super-resolution | `bcxy (1, 1, 128, 128)` | `torchscript` | `(1, 1, 512, 512)` | `default` |
+| [polite-pig](https://bioimage.io/#/?id=polite-pig) | HPA Bestfitting Densenet | HPA protein-localization classifier | `bcyx (1, 4, 512, 512)` | `onnx` | `(1, 28)` | `default` |
+
+Two BIMZ landscape notes worth flagging: (1) most pre-2024 entries
+publish only `pytorch_state_dict` plus optionally `torchscript` — `onnx`
+is rare (1 of 21 here, `polite-pig`); the wrap's automatic
+`onnx → torchscript → pytorch_state_dict` fallback is what makes the
+`default` variant cover this list. (2) StarDist entries
+(`chatty-frog`, `fearless-crab`, `modest-octopus`) ship only
+`tensorflow_saved_model_bundle` and need TensorFlow plus the StarDist
+package, neither of which is in any current `apps.*` flake variant; they
+are intentionally excluded from this list.
+
 ## Flake variants
 
 The same `server.py` is exposed through four `nix run` flavors that differ
