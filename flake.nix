@@ -39,10 +39,42 @@
           bioimageio-core = pyfinal.callPackage ./nix/bioimageio_core.nix {
             bioimageio-spec = pyfinal.bioimageio-spec;
           };
+          microssim = pyfinal.callPackage ./nix/microssim.nix { };
+          careamics = pyfinal.callPackage ./nix/careamics.nix {
+            bioimageio-core = pyfinal.bioimageio-core;
+            microssim = pyfinal.microssim;
+          };
+          csbdeep = pyfinal.callPackage ./nix/csbdeep.nix { };
+          stardist = pyfinal.callPackage ./nix/stardist.nix {
+            csbdeep = pyfinal.csbdeep;
+          };
           imagecodecs = pyprev.imagecodecs.overridePythonAttrs (_: {
             doCheck = false;
             doInstallCheck = false;
           });
+          # nixpkgs propagates orbax-checkpoint (training/serialization helpers
+          # that pull in jax-with-cuda) through keras 3. We only need keras 3
+          # for the runtime path bioimageio.core takes
+          # (tf.keras.layers.TFSMLayer ↔ Keras 3) — orbax + jax-cuda would add
+          # several hours of from-source builds for nothing. Drop the heavy
+          # extras here so the with-stardist closure stays bounded by TF +
+          # stardist + csbdeep (the actually-used packages).
+          keras = pyprev.keras.overridePythonAttrs (old:
+            let
+              drop = p: !(builtins.elem (p.pname or "") [
+                "orbax-checkpoint"
+                "tf2onnx"
+                "scikit-learn"
+              ]);
+            in
+            {
+              dependencies = builtins.filter drop (old.dependencies or [ ]);
+              propagatedBuildInputs = builtins.filter drop (old.propagatedBuildInputs or [ ]);
+              doCheck = false;
+              pythonImportsCheck = [ ];
+              dontCheckRuntimeDeps = true;
+            }
+          );
         };
 
         python = pkgs.python3.override {
@@ -98,7 +130,18 @@
           default = makeApp "default" (pp: [ ]);
 
           # Tier-2 add-ons for RDFs that ship custom architectures.
-          with-stardist = makeApp "with-stardist" (pp: [ pp.stardist ]);
+          # with-stardist also bundles Keras 3 + tf-keras 2 because:
+          #  - bioimageio.core's KerasModelAdapter calls
+          #    `tf.keras.layers.TFSMLayer(...)`, which on TF >= 2.16 lazy-loads
+          #    Keras 3 (tf.keras becomes the standalone `keras` package);
+          #  - csbdeep's `from keras import __version__` probe is patched to
+          #    look at tf_keras (Keras 2) instead so its post-TF-2.6 code path
+          #    doesn't blow up against the installed Keras 3.
+          with-stardist = makeApp "with-stardist" (pp: [
+            pp.stardist
+            pp.keras
+            pp.tf-keras
+          ]);
           with-careamics = makeApp "with-careamics" (pp: [ pp.careamics ]);
           with-monai = makeApp "with-monai" (pp: [ pp.monai ]);
         };

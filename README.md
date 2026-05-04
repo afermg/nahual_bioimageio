@@ -80,16 +80,19 @@ Click any nickname to view the model card on `bioimage.io`.
 | [courteous-otter](https://bioimage.io/#/?id=courteous-otter) | UniFMIRSuperResolutionOnFactin | 2D super-resolution (F-actin) | `bcyx (1, 1, 128, 128)` | `torchscript` | `(1, 1, 256, 256)` | `default` |
 | [organized-cricket](https://bioimage.io/#/?id=organized-cricket) | Mitochondria SR (Wasserstein) | 2D mitochondria super-resolution | `bcxy (1, 1, 128, 128)` | `torchscript` | `(1, 1, 512, 512)` | `default` |
 | [polite-pig](https://bioimage.io/#/?id=polite-pig) | HPA Bestfitting Densenet | HPA protein-localization classifier | `bcyx (1, 4, 512, 512)` | `onnx` | `(1, 28)` | `default` |
+| [jolly-ox](https://bioimage.io/#/?id=jolly-ox) | MouseNuclei_N2V | 2D denoising (Noise2Void, mouse nuclei) | `bcyx (1, 1, 128, 128)` | `pytorch_state_dict` | `(1, 1, 128, 128)` | `with-careamics` |
+| [sincere-microbe](https://bioimage.io/#/?id=sincere-microbe) | CHO mitotic rounding segmentation - brightfield - StarDist | 2D StarDist instance segmentation (CHO, brightfield) | `byxc (1, 256, 256, 1)` | `tensorflow_saved_model_bundle` | varies (StarDist heads) | `with-stardist` |
 
 Two BIMZ landscape notes worth flagging: (1) most pre-2024 entries
 publish only `pytorch_state_dict` plus optionally `torchscript` — `onnx`
 is rare (1 of 21 here, `polite-pig`); the wrap's automatic
 `onnx → torchscript → pytorch_state_dict` fallback is what makes the
-`default` variant cover this list. (2) StarDist entries
-(`chatty-frog`, `fearless-crab`, `modest-octopus`) ship only
-`tensorflow_saved_model_bundle` and need TensorFlow plus the StarDist
-package, neither of which is in any current `apps.*` flake variant; they
-are intentionally excluded from this list.
+`default` variant cover this list. (2) StarDist entries that publish
+TensorFlow 1.15 SavedModels (`chatty-frog`, `fearless-crab`,
+`modest-octopus`) cannot be loaded by the unstable-channel TF (2.21);
+the `with-stardist` variant ships StarDist + TF 2.21 + Keras 3 + tf-keras
+2 and is appropriate for newer StarDist entries (TF >= 2.x SavedModels,
+e.g. `sincere-microbe`).
 
 ## Flake variants
 
@@ -97,12 +100,12 @@ The same `server.py` is exposed through four `nix run` flavors that differ
 only in the Python environment they ship. Pick the smallest one that works
 for your model.
 
-| App                  | Adds                | Use when…                          |
-|----------------------|---------------------|------------------------------------|
-| `.#default`          | nothing extra       | The model publishes ONNX or TorchScript weights (most of the zoo). |
-| `.#with-stardist`    | `stardist`          | The RDF requires the StarDist Python package at load time. |
-| `.#with-careamics`   | `careamics`         | The RDF requires CAREamics. |
-| `.#with-monai`       | `monai`             | The RDF requires a MONAI architecture. |
+| App                  | Adds                                                  | Use when…                          |
+|----------------------|-------------------------------------------------------|------------------------------------|
+| `.#default`          | nothing extra                                         | The model publishes ONNX or TorchScript weights (most of the zoo). |
+| `.#with-stardist`    | `stardist` 0.9.2 + `csbdeep` 0.8.2 + `keras` 3 + `tf-keras` 2 (TF 2.21) | The RDF requires the StarDist Python package and a recent TF 2.x SavedModel. |
+| `.#with-careamics`   | `careamics` 0.1.0 + `microssim` 0.0.3 (PyTorch / Lightning) | The RDF lists CAREamics (Noise2Void, CARE, etc.) as a runtime dependency. |
+| `.#with-monai`       | `monai`                                               | The RDF requires a MONAI architecture. |
 
 ```bash
 nix run --impure github:afermg/nahual_bioimageio#with-stardist -- ipc:///tmp/bioimageio.ipc
@@ -133,5 +136,12 @@ client side to match.
 - `nix/nahual.nix` — Nahual transport layer pin.
 - `nix/bioimageio_core.nix`, `nix/bioimageio_spec.nix`,
   `nix/genericache.nix` — package these from PyPI; nixpkgs doesn't ship them.
+- `nix/careamics.nix`, `nix/microssim.nix` — from-source PyPI builds for
+  `apps.with-careamics`. CAREamics is not in nixpkgs-unstable; microssim
+  is one of its hard dependencies that also isn't.
+- `nix/stardist.nix`, `nix/csbdeep.nix` — from-source PyPI builds for
+  `apps.with-stardist`. csbdeep is patched to use `tf_keras` for its
+  Keras-version probe (see `postPatch` in `nix/csbdeep.nix`) so it
+  cooperates with the Keras 3 install nixpkgs ships alongside TF 2.21.
 - `basic_test.py` — standalone smoke test (loads `affable-shark`, runs
   forward pass, asserts cuda + sensible output shape).
