@@ -1,61 +1,14 @@
 # nahual_bioimageio
 
-A single Nahual server that exposes the entire **BioImage Model Zoo** (BIMZ)
-behind the standard `setup` / `process` IPC contract. You pass a model
-identifier (DOI, Zenodo URL, nickname like `affable-shark`, or a local
-`rdf.yaml` path) at `setup()` time, and the server loads it, picks the right
-backend (PyTorch, TensorFlow, or ONNX), applies the RDF-declared
-preprocessing / postprocessing, and gives you back numpy arrays.
+A single Nahual server fronting the entire **BioImage Model Zoo** (BIMZ): pass any RDF identifier (DOI, Zenodo URL, nickname like `affable-shark`, or a local `rdf.yaml` path) at `setup()` time, and the wrap loads it through `bioimageio.core`, picks the right backend (PyTorch / TensorFlow / ONNX), applies the RDF-declared pre/postprocessing, and gives you back numpy arrays.
 
-## Why one server for the whole zoo?
+## Validated BIMZ models
 
-`bioimageio.core` already speaks every backend BIMZ publishes. The wrap is
-thin: it forwards `source` and `weight_format` to
-`load_description` + `create_prediction_pipeline`, and translates between
-numpy arrays and `xarray.DataArray`s using the axes the RDF declares.
-
-## Run
+23 entries verified end-to-end on `cuda:0`. Click any nickname for its model card on `bioimage.io`. Run with:
 
 ```bash
-# Default flavor: bioimageio.core + onnxruntime + torch + numpy + xarray.
-nix run --impure github:afermg/nahual_bioimageio -- ipc:///tmp/bioimageio.ipc
+nix run --impure github:afermg/nahual_bioimageio[#with-<variant>] -- ipc:///tmp/bioimageio.ipc
 ```
-
-Then from any Python process:
-
-```python
-from nahual.process import dispatch_setup_process
-import numpy as np
-
-setup, process = dispatch_setup_process("bioimageio", signature=("dict", "numpy"))
-
-info = setup(
-    {"source": "affable-shark"},                 # any BIMZ ID
-    address="ipc:///tmp/bioimageio.ipc",
-)
-print(info)  # {'device': 'cuda:0', 'weight_format': 'onnx', 'input_axes': 'bcyx', ...}
-
-img = np.random.random_sample((1, 1, 256, 256)).astype("float32")  # bcyx
-out = process(img, address="ipc:///tmp/bioimageio.ipc")
-print(out.shape)  # (1, 1, 256, 256) for affable-shark
-```
-
-## Validated models from the BioImage Model Zoo
-
-These BIMZ entries have been verified end-to-end on GPU through the
-`server.setup()` + `server._run()` code path: each loads from a fresh
-`bioimageio.core` cache, lands on `cuda:0`, and produces a sensible-shaped
-forward pass on synthetic input. Picked from the 44-model BIMZ collection
-JSON by (a) high download count, (b) `onnx` or `torchscript` weights
-published in the RDF (the `default` flake variant has no model-architecture
-dependencies), and (c) coverage spread across nuclei/cell/EM segmentation,
-super-resolution, label-free, and classification.
-
-```bash
-nix run --impure github:afermg/nahual_bioimageio -- ipc:///tmp/bioimageio.ipc
-```
-
-Click any nickname to view the model card on `bioimage.io`.
 
 | Nickname | Name | Task | Input axes (shape) | Weight format | Output shape | App variant |
 |---|---|---|---|---|---|---|
@@ -81,67 +34,82 @@ Click any nickname to view the model card on `bioimage.io`.
 | [organized-cricket](https://bioimage.io/#/?id=organized-cricket) | Mitochondria SR (Wasserstein) | 2D mitochondria super-resolution | `bcxy (1, 1, 128, 128)` | `torchscript` | `(1, 1, 512, 512)` | `default` |
 | [polite-pig](https://bioimage.io/#/?id=polite-pig) | HPA Bestfitting Densenet | HPA protein-localization classifier | `bcyx (1, 4, 512, 512)` | `onnx` | `(1, 28)` | `default` |
 | [jolly-ox](https://bioimage.io/#/?id=jolly-ox) | MouseNuclei_N2V | 2D denoising (Noise2Void, mouse nuclei) | `bcyx (1, 1, 128, 128)` | `pytorch_state_dict` | `(1, 1, 128, 128)` | `with-careamics` |
-| [sincere-microbe](https://bioimage.io/#/?id=sincere-microbe) | CHO mitotic rounding segmentation - brightfield - StarDist | 2D StarDist instance segmentation (CHO, brightfield) | `byxc (1, 256, 256, 1)` | `tensorflow_saved_model_bundle` | varies (StarDist heads) | `with-stardist` |
+| [sincere-microbe](https://bioimage.io/#/?id=sincere-microbe) | CHO mitotic rounding (StarDist) | 2D StarDist instance seg (CHO brightfield) | `byxc (1, 256, 256, 1)` | `tensorflow_saved_model_bundle` | varies (StarDist heads) | `with-stardist` |
 
-Two BIMZ landscape notes worth flagging: (1) most pre-2024 entries
-publish only `pytorch_state_dict` plus optionally `torchscript` — `onnx`
-is rare (1 of 21 here, `polite-pig`); the wrap's automatic
-`onnx → torchscript → pytorch_state_dict` fallback is what makes the
-`default` variant cover this list. (2) StarDist entries that publish
-TensorFlow 1.15 SavedModels (`chatty-frog`, `fearless-crab`,
-`modest-octopus`) cannot be loaded by the unstable-channel TF (2.21);
-the `with-stardist` variant ships StarDist + TF 2.21 + Keras 3 + tf-keras
-2 and is appropriate for newer StarDist entries (TF >= 2.x SavedModels,
-e.g. `sincere-microbe`).
+Picked from the BIMZ collection JSON by (a) high download count, (b) `onnx` or `torchscript` weights so the `default` flake variant covers them with no model-architecture deps, and (c) coverage spread across nuclei / cell / EM segmentation, super-resolution, label-free prediction, and classification. Three additional candidates were attempted but dropped: `joyful-deer` and `straightforward-crocodile` (bioimageio.core 0.10.2 hasn't implemented the v0_4 `ScaleLinearKwargs(axes=...)` postprocessing) and `nice-peacock` (3-input model — single-tensor wrap can't drive it).
 
-## Flake variants
+**BIMZ landscape notes:**
 
-The same `server.py` is exposed through four `nix run` flavors that differ
-only in the Python environment they ship. Pick the smallest one that works
-for your model.
+- **TorchScript dominates.** Of the 21 default-variant entries, 20 use `torchscript` and only 1 (`polite-pig`) uses `onnx`. The wrap's automatic `onnx → torchscript → pytorch_state_dict` fallback is what makes `default` cover this list without per-model architecture deps.
+- **TF 1.15 SavedModels are unloadable.** StarDist entries publishing TF 1.15 SavedModels (`chatty-frog`, `fearless-crab`, `modest-octopus`) can't load on this stack — `bioimageio.core 0.10.2` routes through Keras 3's `TFSMLayer`, which doesn't consume TF1 graph-def SavedModels. Use the dedicated [`afermg/stardist`](https://github.com/afermg/stardist) wrap (TF 2.13 / Python 3.11) for those.
+- **`with-stardist` covers TF 2.x SavedModels** (e.g. `sincere-microbe`); `with-careamics` covers any RDF that depends on the CAREamics Python package (e.g. `jolly-ox`, the N2V family).
 
-| App                  | Adds                                                  | Use when…                          |
-|----------------------|-------------------------------------------------------|------------------------------------|
-| `.#default`          | nothing extra                                         | The model publishes ONNX or TorchScript weights (most of the zoo). |
-| `.#with-stardist`    | `stardist` 0.9.2 + `csbdeep` 0.8.2 + `keras` 3 + `tf-keras` 2 (TF 2.21) | The RDF requires the StarDist Python package and a recent TF 2.x SavedModel. |
-| `.#with-careamics`   | `careamics` 0.1.0 + `microssim` 0.0.3 (PyTorch / Lightning) | The RDF lists CAREamics (Noise2Void, CARE, etc.) as a runtime dependency. |
-| `.#with-monai`       | `monai`                                               | The RDF requires a MONAI architecture. |
+## What's new vs vanilla `bioimageio.core`
+
+This wrap adds three layers on top:
+
+1. **Nahual IPC.** Long-lived server, numpy in/out across process and environment boundaries — so a downstream pipeline doesn't have to inherit bioimageio.core's dep closure. With `nahual >= 0.0.9` you can `setup()` again on the same server to swap models without restarting the IPC daemon.
+2. **GPU-first packaging.** `cudaSupport = true`; the dev shell ships `cudaPackages.cudatoolkit` + `cudnn`. ONNX Runtime resolves to its CUDA-built variant; PyTorch/TensorFlow paths land on `cuda:0` (or `GPU:0` for TF). Validation in this README is on a real GPU, not CPU smoke.
+3. **Tier-2 flake variants for custom-architecture RDFs.** RDFs that publish only `pytorch_state_dict` need their architecture importable in the env. Three add-on variants share the same `server.py`:
+
+| App | Adds | Use when… |
+|---|---|---|
+| `.#default` | nothing extra | The model publishes ONNX or TorchScript (most of the zoo). |
+| `.#with-stardist` | `stardist` 0.9.2 + `csbdeep` 0.8.2 + `keras` 3 + `tf-keras` 2 (TF 2.21) | Recent StarDist RDFs (TF 2.x SavedModels). |
+| `.#with-careamics` | `careamics` 0.1.0 + `microssim` 0.0.3 | RDF lists CAREamics as a runtime dep (CARE, N2V, etc.). |
+| `.#with-monai` | `monai` | RDF requires a MONAI architecture. |
+
+`careamics`, `microssim`, `stardist`, and `csbdeep` are packaged from PyPI as proper Nix derivations — no conda/micromamba bootstrap. `csbdeep` is `postPatch`-ed to look up the Keras version through `tf_keras` (rather than its raw `from keras import __version__`), which lets it cooperate with the Keras 3 install nixpkgs ships alongside TF 2.21.
+
+## Run
 
 ```bash
-nix run --impure github:afermg/nahual_bioimageio#with-stardist -- ipc:///tmp/bioimageio.ipc
+# Default flavor.
+nix run --impure github:afermg/nahual_bioimageio -- ipc:///tmp/bioimageio.ipc
+
+# Or pick a flavor for your model:
+nix run --impure github:afermg/nahual_bioimageio#with-stardist  -- ipc:///tmp/bioimageio.ipc
+nix run --impure github:afermg/nahual_bioimageio#with-careamics -- ipc:///tmp/bioimageio.ipc
+nix run --impure github:afermg/nahual_bioimageio#with-monai     -- ipc:///tmp/bioimageio.ipc
+```
+
+Then from any Python process:
+
+```python
+from nahual.process import dispatch_setup_process
+import numpy as np
+
+setup, process = dispatch_setup_process("bioimageio", signature=("dict", "numpy"))
+
+info = setup(
+    {"source": "affable-shark"},                 # any BIMZ ID
+    address="ipc:///tmp/bioimageio.ipc",
+)
+print(info)  # {'device': 'cuda:0', 'weight_format': 'torchscript', 'input_axes': 'bcyx', ...}
+
+img = np.random.random_sample((1, 1, 256, 256)).astype("float32")  # bcyx
+out = process(img, address="ipc:///tmp/bioimageio.ipc")
+print(out.shape)  # (1, 2, 256, 256) for affable-shark
 ```
 
 ## `setup()` parameters
 
-| Param           | Type            | Default | Notes |
-|-----------------|-----------------|---------|-------|
-| `source`        | `str`           | —       | Required. Any identifier `bioimageio.core.load_description` accepts. |
-| `weight_format` | `str \| None`   | `None`  | If `None`, tries `onnx` then `torchscript` then `pytorch_state_dict`. Errors out informatively if none of the preferred formats are published, listing what IS available. |
-| `device`        | `int`           | `0`     | CUDA device index. Maps to `devices=["cuda:<device>"]`. |
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `source` | `str` | — | Required. Any identifier `bioimageio.core.load_description` accepts. |
+| `weight_format` | `str \| None` | `None` | If `None`, tries `onnx` then `torchscript` then `pytorch_state_dict`. Errors informatively if no preferred format is published, listing what IS available. |
+| `device` | `int` | `0` | CUDA device index → `devices=["cuda:<device>"]`. |
 
 ## `process()` contract
 
-Pass a numpy array whose dims match the RDF's declared input axes
-(returned in the `input_axes` field of `setup()`'s response — e.g. `bcyx`).
-The wrap reshapes it into an `xarray.DataArray`, runs the prediction
-pipeline, and returns the first output as a plain numpy array. No `NCZYX`
-padding here — different RDFs declare different axes; reshape on the
-client side to match.
+Pass a numpy array whose dims match the RDF's declared input axes (returned in the `input_axes` field of `setup()`'s response — e.g. `bcyx`). The wrap reshapes it into an `xarray.DataArray`, runs the prediction pipeline, and returns the first output as a plain numpy array. **No `NCZYX` normalization here** — different RDFs declare different axes; reshape on the client side to match.
 
 ## Files
 
 - `server.py` — Nahual server, multi-backend.
-- `flake.nix` — four apps (`default` / `with-stardist` / `with-careamics`
-  / `with-monai`) plus a dev shell.
-- `nix/nahual.nix` — Nahual transport layer pin.
-- `nix/bioimageio_core.nix`, `nix/bioimageio_spec.nix`,
-  `nix/genericache.nix` — package these from PyPI; nixpkgs doesn't ship them.
-- `nix/careamics.nix`, `nix/microssim.nix` — from-source PyPI builds for
-  `apps.with-careamics`. CAREamics is not in nixpkgs-unstable; microssim
-  is one of its hard dependencies that also isn't.
-- `nix/stardist.nix`, `nix/csbdeep.nix` — from-source PyPI builds for
-  `apps.with-stardist`. csbdeep is patched to use `tf_keras` for its
-  Keras-version probe (see `postPatch` in `nix/csbdeep.nix`) so it
-  cooperates with the Keras 3 install nixpkgs ships alongside TF 2.21.
-- `basic_test.py` — standalone smoke test (loads `affable-shark`, runs
-  forward pass, asserts cuda + sensible output shape).
+- `flake.nix` — four apps (`default` / `with-stardist` / `with-careamics` / `with-monai`) plus a dev shell.
+- `nix/bioimageio_core.nix`, `nix/bioimageio_spec.nix`, `nix/genericache.nix` — from-PyPI builds; nixpkgs doesn't ship these.
+- `nix/careamics.nix`, `nix/microssim.nix` — from-PyPI builds for `apps.with-careamics`.
+- `nix/stardist.nix`, `nix/csbdeep.nix` — from-PyPI builds for `apps.with-stardist`. `csbdeep` is patched to look up the Keras version through `tf_keras`.
+- `basic_test.py` — standalone smoke test (loads `affable-shark`, asserts `cuda` + sensible output shape).
+- `examples/bioimageio.py` — Nahual client demo.
