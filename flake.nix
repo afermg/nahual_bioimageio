@@ -6,8 +6,7 @@
     systems.url = "github:nix-systems/default";
     flake-utils.url = "github:numtide/flake-utils";
     flake-utils.inputs.systems.follows = "systems";
-    pynng-flake.url = "github:afermg/pynng";
-    pynng-flake.inputs.nixpkgs.follows = "nixpkgs";
+    nahual-flake.url = "github:afermg/nahual";
   };
 
   outputs =
@@ -114,9 +113,10 @@
           };
 
         packages = {
-          nahual = python.pkgs.callPackage ./nix/nahual.nix {
-            pynng = inputs.pynng-flake.packages.${system}.pynng;
-          };
+          # nahual recipe sourced from upstream flake input; built against
+          # our local python so it shares the override scope (keras drops,
+          # imagecodecs check skip, etc).
+          nahual = python.pkgs.callPackage (inputs.nahual-flake + "/nix/nahual.nix") { };
         };
       in
       with pkgs;
